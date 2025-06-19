@@ -3,7 +3,7 @@ tqdm
 hydra-core==1.2.0
 pytorch-lightning==1.8.6
 setuptools==59.5.0
-protobuf==3.19.0
+protobuf>=3.20.2,<4
 rich==12.4.4
 wandb==0.13.5
 plotly
@@ -14,4 +14,4 @@ torchmetrics==0.10.2
 scikit-learn
 onnx
 onnxscript
-onnxruntime
+onnxruntime-gpu

@@ -8,6 +8,7 @@ rich==12.4.4
 wandb==0.13.5
 plotly
 matplotlib==3.4.3
+numpy>=1.19,<1.24
 timm
 plotly
 torchmetrics==0.10.2

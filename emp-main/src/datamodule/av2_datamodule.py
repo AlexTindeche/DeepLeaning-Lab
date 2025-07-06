@@ -19,6 +19,7 @@ class Av2DataModule(LightningDataModule):
         num_workers: int = 8,
         pin_memory: bool = True,
         test: bool = False,
+        prefetch_factor: int = 4,
     ):
         super(Av2DataModule, self).__init__()
         self.data_root = Path(data_root)
@@ -30,6 +31,8 @@ class Av2DataModule(LightningDataModule):
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.test = test
+        self.prefetch_factor = prefetch_factor
+        
 
     def setup(self, stage: Optional[str] = None) -> None:
         if not self.test:
@@ -50,6 +53,7 @@ class Av2DataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=self.shuffle,
             num_workers=self.num_workers,
+            prefetch_factor=self.prefetch_factor,
             pin_memory=self.pin_memory,
             collate_fn=collate_fn,
         )

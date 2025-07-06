@@ -14,10 +14,12 @@ dm: av2
 output: ${model.name}-${model.phase}_${dm}
 
 # trainer
-num_workers: 6
+num_workers: 18
+prefetch_factor: 4
+pin_memory: true 
 gpus: 1
 sync_bn: true
-batch_size: 128
+batch_size: 64
 epochs: 60
 warmup_epochs: 10
 
@@ -33,4 +35,4 @@ limit_test_batches:
 log_model: all
 test: false
 
-wandb: disable
+wandb: online

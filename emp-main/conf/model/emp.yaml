@@ -11,13 +11,13 @@ target:
   mlp_ratio: 2.0
   qkv_bias: False
   drop_path: 0.2
+  attention_type: "standard"  # "standard", "linear", "performer"
+  decoder: "mlp"  # Decoder type: "mlp" or "detr"
+  decoder_embed_dim: 64
+  decoder_num_modes: 3
+  decoder_hidden_dim: 128
   pretrained_weights: ${pretrained_weights}
   lr: ${lr}
   weight_decay: ${weight_decay}
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
-  decoder: 
-    _target_: src.model.decoder.mlp_decoder.MLPDecoder
-    embed_dim: 64
-    num_modes: 3
-    hidden_dim: 128

@@ -18,7 +18,11 @@ class EMP(nn.Module):
         mlp_ratio=4.0,
         qkv_bias=False,
         drop_path=0.2,
-        decoder=""
+        decoder="",
+        attention_type="standard",  # "standard", "linear", "performer"
+        decoder_embed_dim=None,  # Optional decoder parameters
+        decoder_num_modes=None,
+        decoder_hidden_dim=None
     ) -> None:
         super().__init__()
 
@@ -47,7 +51,8 @@ class EMP(nn.Module):
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
                 drop_path=dpr[i],
-                cross_attn=False
+                cross_attn=False,
+                attention_type=attention_type
             )
             for i in range(encoder_depth)
         )
@@ -67,7 +72,8 @@ class EMP(nn.Module):
                 mlp_ratio=mlp_ratio,
                 qkv_bias=qkv_bias,
                 drop_path=dpr[i],
-                cross_attn=False
+                cross_attn=False,
+                attention_type=attention_type
             )
             for i in range(encoder_depth)
         )
@@ -76,11 +82,29 @@ class EMP(nn.Module):
         self.actor_type_embed = nn.Parameter(torch.Tensor(4, embed_dim))
         self.lane_type_embed = nn.Parameter(torch.Tensor(1, 1, embed_dim))
         
-        k = 6
-        self.decoder = MultimodalDecoder(embed_dim, self.future_steps, k=k)
-        self.dense_predictor = nn.Sequential(
-            nn.Linear(embed_dim, 256), nn.ReLU(), nn.Linear(256, self.future_steps * 2)
-        )
+        # Use passed decoder parameters or defaults
+        decoder_k = decoder_num_modes if decoder_num_modes is not None else 6
+        decoder_embed_dim_internal = decoder_embed_dim if decoder_embed_dim is not None else embed_dim
+        
+        # If decoder_embed_dim is different from embed_dim, add a projection layer
+        if decoder_embed_dim is not None and decoder_embed_dim != embed_dim:
+            self.decoder_proj = nn.Linear(embed_dim, decoder_embed_dim)
+            self.decoder = MultimodalDecoder(decoder_embed_dim, self.future_steps, k=decoder_k)
+        else:
+            self.decoder_proj = None
+            self.decoder = MultimodalDecoder(embed_dim, self.future_steps, k=decoder_k)
+        
+        # Update dense predictor if custom hidden_dim is provided
+        if decoder_hidden_dim is not None:
+            self.dense_predictor = nn.Sequential(
+                nn.Linear(embed_dim, decoder_hidden_dim), 
+                nn.ReLU(), 
+                nn.Linear(decoder_hidden_dim, self.future_steps * 2)
+            )
+        else:
+            self.dense_predictor = nn.Sequential(
+                nn.Linear(embed_dim, 256), nn.ReLU(), nn.Linear(256, self.future_steps * 2)
+            )
 
         self.initialize_weights()
 
@@ -200,7 +224,15 @@ class EMP(nn.Module):
         x_others = x_encoder[:, 1:N]
         y_hat_others = self.dense_predictor(x_others).view(B, -1, self.future_steps, 2)
 
-        y_hat, pi = self.decoder(x_agent, x_encoder, key_padding_mask, N)
+        # Apply decoder projection if needed
+        if self.decoder_proj is not None:
+            x_agent_decoder = self.decoder_proj(x_agent)
+            x_encoder_decoder = self.decoder_proj(x_encoder)
+        else:
+            x_agent_decoder = x_agent
+            x_encoder_decoder = x_encoder
+
+        y_hat, pi = self.decoder(x_agent_decoder, x_encoder_decoder, key_padding_mask, N)
         
         y_hat_eps = y_hat[:, :, -1]
 

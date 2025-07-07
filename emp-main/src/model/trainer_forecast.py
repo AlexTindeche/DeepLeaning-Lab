@@ -33,7 +33,11 @@ class Trainer(pl.LightningModule):
         warmup_epochs: int = 10,
         epochs: int = 60,
         weight_decay: float = 1e-4,
-        decoder: str = "detr"
+        decoder="detr",  # Can be string or dict with configuration
+        attention_type: str = "standard",  # "standard", "linear", "performer"
+        decoder_embed_dim: int = None,  # Optional decoder parameters
+        decoder_num_modes: int = None,
+        decoder_hidden_dim: int = None
     ) -> None:
         super(Trainer, self).__init__()
         self.warmup_epochs = warmup_epochs
@@ -46,6 +50,16 @@ class Trainer(pl.LightningModule):
         self.future_steps = future_steps
         self.submission_handler = SubmissionAv2()
 
+        # Handle decoder configuration
+        if isinstance(decoder, str):
+            decoder_type = decoder
+        else:
+            # If decoder is a dict, extract the type and parameters
+            decoder_type = decoder.get("type", "detr")
+            decoder_embed_dim = decoder.get("embed_dim", decoder_embed_dim)
+            decoder_num_modes = decoder.get("num_modes", decoder_num_modes)
+            decoder_hidden_dim = decoder.get("hidden_dim", decoder_hidden_dim)
+
         self.net = EMP(
             embed_dim=dim,
             encoder_depth=encoder_depth,
@@ -53,7 +67,11 @@ class Trainer(pl.LightningModule):
             mlp_ratio=mlp_ratio,
             qkv_bias=qkv_bias,
             drop_path=drop_path,
-            decoder=decoder
+            decoder=decoder_type,
+            attention_type=attention_type,
+            decoder_embed_dim=decoder_embed_dim,
+            decoder_num_modes=decoder_num_modes,
+            decoder_hidden_dim=decoder_hidden_dim
         )  
 
         if pretrained_weights is not None:

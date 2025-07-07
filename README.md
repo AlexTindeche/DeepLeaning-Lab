@@ -6,7 +6,11 @@ Modifications:
     For this I added the following:  
     a. In transformer_blocks.py I added 2 classes:  
         - LinearAttentionBlock  
-        - PerformerAttentionBlock
+        - PerformerAttentionBlock  
+    b. in emp.py I added a new parameters (attention_type, decoder_embed_dim=None, decoder_num_modes, decoder_hidden_dim)  
+        + added a projection layer to match the dimensions of embed_dim and decoder_embed_dim if they are different  
+        + modified the creaton of the dense predictor to use the decoder_hidden_dim if provided  
+        + in decoding I added the projection layer that was defined in init  
 
 Model 1:  
 

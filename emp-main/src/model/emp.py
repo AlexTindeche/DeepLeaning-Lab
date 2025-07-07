@@ -84,7 +84,15 @@ class EMP(nn.Module):
         
         # Use passed decoder parameters or defaults
         decoder_k = decoder_num_modes if decoder_num_modes is not None else 6
-        decoder_embed_dim_internal = decoder_embed_dim if decoder_embed_dim is not None else embed_dim
+
+        """
+        
+            embed_dim is the dimension of the output embeddings for each agent and lane. If this is different from the decoder_embed_dim,
+            which is the dimension of the decoder input, a projection layer will be added to match the dimensions
+            
+            A simple linear layer is used to project between embed_dim and decoder_embed_dim
+        
+        """
         
         # If decoder_embed_dim is different from embed_dim, add a projection layer
         if decoder_embed_dim is not None and decoder_embed_dim != embed_dim:
@@ -95,7 +103,7 @@ class EMP(nn.Module):
             self.decoder = MultimodalDecoder(embed_dim, self.future_steps, k=decoder_k)
         
         # Update dense predictor if custom hidden_dim is provided
-        if decoder_hidden_dim is not None:
+        if decoder_hidden_dim is not None: # This was updated to allow for custom hidden_dim
             self.dense_predictor = nn.Sequential(
                 nn.Linear(embed_dim, decoder_hidden_dim), 
                 nn.ReLU(), 

@@ -1,0 +1,36 @@
+defaults:
+  - hydra: default
+  - datamodule: av2
+  - model: emp
+
+seed: 2333
+monitor: val_loss
+save_top_k: 10
+
+data_root:
+checkpoint:
+pretrained_weights:
+dm: av2
+output: ${model.name}-${model.phase}_${dm}
+
+# trainer
+num_workers: 6
+gpus: 1
+sync_bn: true
+batch_size: 128
+epochs: 60
+warmup_epochs: 10
+
+# optimizer
+lr: 0.001
+weight_decay: 1e-4
+gradient_clip_val: 3
+gradient_clip_algorithm: norm
+
+limit_train_batches:
+limit_val_batches:
+limit_test_batches:
+log_model: all
+test: false
+
+wandb: disable

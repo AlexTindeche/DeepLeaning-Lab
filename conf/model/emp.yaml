@@ -16,4 +16,8 @@ target:
   weight_decay: ${weight_decay}
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
-  decoder: mlp
+  attention_type: "standard"  # "standard", "linear", "performer"
+  decoder: "mlp"  # Decoder type: "mlp" or "detr"
+  decoder_embed_dim: 128 # default: 128
+  decoder_num_modes: 6 # default: 6
+  decoder_hidden_dim: 256 # default: 256

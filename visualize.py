@@ -23,8 +23,8 @@ def main():
     predict = args.predict
 
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-    split = "val"
-    data_root = Path("/path/to/data_root/emp")
+    split = "emp/val"
+    data_root = Path("D:/Uni-work/UniFreiburg/DL_Lab/Project/DeepLeaning-Lab/data_root")
     dataset = Av2Dataset(data_root=data_root, cached_split=split)
 
     if predict:
@@ -56,8 +56,8 @@ def main():
 
         for b in range(0, data["x"].shape[0], 1):
             scene_id = data["scenario_id"][b]
-            scene_file = data_root / ".." / split / "raw" / scene_id / ("scenario_" + scene_id + ".parquet")
-            map_file = data_root / ".." / split / "raw" / scene_id / ("log_map_archive_" + scene_id + ".json")
+            scene_file = data_root / "val" / scene_id / ("scenario_" + scene_id + ".parquet")
+            map_file = data_root / "val" / scene_id / ("log_map_archive_" + scene_id + ".json")
             scenario = scenario_serialization.load_argoverse_scenario_parquet(scene_file)
             static_map = ArgoverseStaticMap.from_json(map_file)
             if predict:

@@ -8,6 +8,7 @@ from hydra.utils import instantiate
 from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
                                          RichModelSummary, RichProgressBar)
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from ptflops import get_model_complexity_info
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -59,6 +60,14 @@ def main(conf):
 
     model = instantiate(conf.model.target)
     datamodule = instantiate(conf.datamodule)
+
+    # if conf.calculate_flops:
+    #     macs, params = get_model_complexity_info(
+    #         model,
+    #         datamodule,
+    #     )
+    #     print(f"FLOPs: {macs}, Params: {params}")
+    #     return
     trainer.fit(model, datamodule, ckpt_path=conf.checkpoint)
 
 

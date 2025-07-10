@@ -3,19 +3,19 @@ phase: forecast
 
 target:
   _target_: src.model.trainer_forecast.Trainer
-  dim: 32
+  dim: 128
   historical_steps: 50
   future_steps: 60
-  encoder_depth: 2
-  num_heads: 4
-  mlp_ratio: 2.0
+  encoder_depth: 4
+  num_heads: 8
+  mlp_ratio: 4.0
   qkv_bias: False
   drop_path: 0.2
   attention_type: "standard"  # "standard", "linear", "performer"
   decoder: "mlp"  # Decoder type: "mlp" or "detr"
-  decoder_embed_dim: 64
-  decoder_num_modes: 3
-  decoder_hidden_dim: 128
+  # decoder_embed_dim: 128
+  # decoder_num_modes: 6
+  # decoder_hidden_dim: 256
   pretrained_weights: ${pretrained_weights}
   lr: ${lr}
   weight_decay: ${weight_decay}

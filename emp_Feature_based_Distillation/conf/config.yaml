@@ -18,8 +18,10 @@ num_workers: 6
 gpus: 1
 sync_bn: true
 batch_size: 128
-epochs: 60
-warmup_epochs: 10
+#was set to 60
+epochs: 10
+#was set to 10
+warmup_epochs: 2
 
 # optimizer
 lr: 0.001

@@ -46,7 +46,19 @@ class Trainer(pl.LightningModule):
         self.future_steps = future_steps
         self.submission_handler = SubmissionAv2()
 
-        self.net = EMP(
+        # self.net = EMP(
+        #     embed_dim=dim,
+        #     encoder_depth=encoder_depth,
+        #     num_heads=num_heads,
+        #     mlp_ratio=mlp_ratio,
+        #     qkv_bias=qkv_bias,
+        #     drop_path=drop_path,
+        #     decoder=decoder
+        # )  
+
+
+        # student network to train
+        self.student = EMP(
             embed_dim=dim,
             encoder_depth=encoder_depth,
             num_heads=num_heads,
@@ -54,10 +66,29 @@ class Trainer(pl.LightningModule):
             qkv_bias=qkv_bias,
             drop_path=drop_path,
             decoder=decoder
-        )  
+        )
+
+
+        # teacher network
+        self.teacher = EMP(
+            embed_dim=dim,
+            encoder_depth=encoder_depth,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            qkv_bias=qkv_bias,
+            drop_path=drop_path,
+            decoder=decoder
+        )
+
 
         if pretrained_weights is not None:
-            self.net.load_from_checkpoint(pretrained_weights)
+            # self.net.load_from_checkpoint(pretrained_weights)
+
+            #teacher params excluded from training and teacher is frozen
+            self.teacher.load_from_checkpoint(pretrained_weights)
+            self.teacher.eval()
+            for param in self.teacher.parameters():
+                param.requires_grad = False
 
         metrics = MetricCollection(
             {
@@ -79,12 +110,14 @@ class Trainer(pl.LightningModule):
 
 
     def forward(self, data):
-        return self.net(data)
+        # return self.net(data)
+        return self.student(data)
 
 
     def predict(self, data, full=False):
         with torch.no_grad():
-            out = self.net(data)
+            # out = self.net(data)
+            out = self.student(data)
         predictions, prob = self.submission_handler.format_data(
             data, out["y_hat"], out["pi"], inference=True
         )
@@ -123,8 +156,35 @@ class Trainer(pl.LightningModule):
         }
 
     def training_step(self, data, batch_idx):
-        out = self(data)
-        losses = self.cal_loss(out, data)
+        # out = self(data)
+        # losses = self.cal_loss(out, data)
+        student_out = self.student(data)
+        losses = self.cal_loss(student_out, data)
+
+        # hint based distallation 
+
+        with torch.no_grad():
+            teacher_features = self.teacher.get_hint_features(data, layer_index=2)  # layer_index=2 is just an example
+
+        student_features = self.student.get_guided_features(data)
+        student_mapped = self.student.adapt_student_features(student_features)
+
+        min_len = min(student_mapped.size(1), teacher_features.size(1))
+        student_mapped = student_mapped[:, :min_len]
+        teacher_features = teacher_features[:, :min_len]
+
+        #distilation loss
+        loss_hint = 0.5 * F.mse_loss(student_mapped, teacher_features)
+
+        # hint loss weight
+        alpha = 1.0  
+        total_loss = losses["loss"] + alpha * loss_hint
+
+        print("loss hint: ", loss_hint.item(), " | total loss: ", total_loss.item())
+
+        # self.log("train/loss_hint", loss_hint.item(), on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
+        # self.log("train/total_loss", total_loss.item(), on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+
         
         for k, v in losses.items():
             self.log(
@@ -136,13 +196,18 @@ class Trainer(pl.LightningModule):
                 sync_dist=True,
             )
 
-        return losses["loss"]
+        # return losses["loss"]
+        return total_loss
 
     def validation_step(self, data, batch_idx):
-        out = self(data)
+        # out = self(data)
+        # losses = self.cal_loss(out, data, -1)
+        # metrics = self.val_metrics(out, data["y"][:, 0])
 
-        losses = self.cal_loss(out, data, -1)
-        metrics = self.val_metrics(out, data["y"][:, 0])
+        student_out = self.student(data)
+
+        losses = self.cal_loss(student_out, data, -1)
+        metrics = self.val_metrics(student_out, data["y"][:, 0])
 
         self.log(
             "val/reg_loss",
@@ -169,7 +234,8 @@ class Trainer(pl.LightningModule):
         save_dir.mkdir(exist_ok=True)
 
     def test_step(self, data, batch_idx) -> None:
-        out = self(data)
+        # out = self(data)
+        out = self.student(data)
         self.submission_handler.format_data(data, out["y_hat"], out["pi"])
 
     def on_test_end(self) -> None:

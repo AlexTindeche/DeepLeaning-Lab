@@ -43,4 +43,7 @@ class MultimodalDecoder(nn.Module):
         loc = self.loc(x).view(-1, self.k, self.future_steps, 2)
         pi = self.pi(x).squeeze(-1)
 
-        return loc, pi
+        # logits
+        pi_logits = self.pi(x).squeeze(-1)  #(B, k)
+        
+        return loc, pi, pi_logits

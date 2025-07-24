@@ -43,6 +43,7 @@ def main(conf):
         LearningRateMonitor(logging_interval="epoch"),
     ]
 
+
     trainer = pl.Trainer(
         logger=logger,
         gradient_clip_val=conf.gradient_clip_val,
@@ -55,6 +56,7 @@ def main(conf):
         limit_train_batches=conf.limit_train_batches,
         limit_val_batches=conf.limit_val_batches,
         sync_batchnorm=conf.sync_bn,
+        num_sanity_val_steps=0,
     )
 
     model = instantiate(conf.model.target)

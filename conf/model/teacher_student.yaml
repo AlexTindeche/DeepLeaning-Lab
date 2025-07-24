@@ -1,0 +1,63 @@
+name: emp
+phase: forecast
+
+target:
+  _target_: src.model.teacher_student.TeacherStudentTrainer
+
+  
+  # Training hyperparameters
+  pretrained: true
+  pretrained_weights_teacher: checkpoints\empm-base.ckpt
+  pretrained_weights_student: ${pretrained_weights}
+  historical_steps: 50
+  future_steps: 60  
+  lr: ${lr}
+  weight_decay: ${weight_decay}
+  epochs: ${epochs}
+  warmup_epochs: ${warmup_epochs}
+  batch_size: ${batch_size}
+
+
+  
+  # Distillation-specific settings
+  loss_weights:
+    kd: 0.7
+    ce: 0.3
+      # Relational Knowledge Distillation (RKD) settings
+    rkd_distance: 1
+    rkd_angle: 2
+    attention_ratio: 0
+
+  # Teacher model definition
+  teacher_model:
+    _target_: src.model.emp.EMP
+    embed_dim: 128
+    encoder_depth: 4
+    num_heads: 8
+    mlp_ratio: 4.0
+    qkv_bias: False
+    drop_path: 0.2
+    attention_type: "standard"  # "standard", "linear", "performer"
+    decoder: "mlp"  # Decoder type: "mlp" or "detr"
+
+    # Optional decoder params (set only if needed)
+    decoder_embed_dim: 128 # default: 128
+    decoder_num_modes: 6 # default: 6
+    decoder_hidden_dim: 256 # default: 256
+
+  # Student model definition
+  student_model:
+    _target_: src.model.emp.EMP
+    embed_dim: 32
+    encoder_depth: 4
+    num_heads: 8
+    mlp_ratio: 4.0
+    qkv_bias: False
+    drop_path: 0.2
+    attention_type: "standard"  # "standard", "linear", "performer"
+    decoder: "mlp"  # Decoder type: "mlp" or "detr"
+
+    # Optional decoder params (set only if needed)
+    decoder_embed_dim: 128 # default: 128
+    decoder_num_modes: 6 # default: 6
+    decoder_hidden_dim: 256 # default: 256

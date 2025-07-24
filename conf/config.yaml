@@ -1,7 +1,7 @@
 defaults:
   - hydra: default
   - datamodule: av2
-  - model: emp
+  - model: teacher_student
 
 seed: 2333
 monitor: val_loss

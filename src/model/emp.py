@@ -144,7 +144,7 @@ class EMP(nn.Module):
         return self.load_state_dict(state_dict=state_dict, strict=False)
 
 
-    def forward(self, data):
+    def forward(self, data, get_embeddings=False):
         hist_padding_mask = data["x_padding_mask"][:, :, :self.history_steps]
         
         hist_key_padding_mask = data["x_key_padding_mask"]
@@ -185,6 +185,8 @@ class EMP(nn.Module):
 
         actor_feat = actor_feat_tmp.view(B, N, actor_feat.shape[-1])
 
+        agent_feat_emb = torch.clone(actor_feat)
+
         ####################
         # LANE ENCODING
 
@@ -198,6 +200,8 @@ class EMP(nn.Module):
         lane_feat = self.lane_embed(lane_normalized.view(-1, L, D).contiguous())
         lane_feat = lane_feat.view(B, M, -1)
 
+        lane_feat_emb = torch.clone(lane_feat)
+
         ####################
         # POS ENCODING
 
@@ -207,6 +211,8 @@ class EMP(nn.Module):
         x_angles = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1)
         pos_feat = torch.cat([x_centers, x_angles], dim=-1)      
         pos_embed = self.pos_embed(pos_feat)
+
+        pos_embed_emb = torch.clone(pos_embed)
 
         ####################
         # SCENE ENCODING
@@ -224,6 +230,8 @@ class EMP(nn.Module):
         for blk in self.blocks:
             x_encoder = blk(x_encoder, key_padding_mask=key_padding_mask)
         x_encoder = self.norm(x_encoder)
+
+        scene_encoder_emb = torch.clone(x_encoder)
 
         ####################
         # DECODING        
@@ -243,6 +251,19 @@ class EMP(nn.Module):
         y_hat, pi = self.decoder(x_agent_decoder, x_encoder_decoder, key_padding_mask, N)
         
         y_hat_eps = y_hat[:, :, -1]
+
+        if get_embeddings:
+            return [agent_feat_emb, lane_feat_emb, pos_embed_emb, scene_encoder_emb],{
+                "y_hat": y_hat,
+                "pi": pi,
+                "y_hat_others": y_hat_others,
+                "y_hat_eps": y_hat_eps,
+                "x_agent": x_agent,
+                "actor_feat_pred": agent_feat_emb,
+                "lane_feat_pred": lane_feat_emb,
+                "pos_embed_pred": pos_embed_emb,
+                "scene_encoder_pred": scene_encoder_emb,
+            }
 
         return {
             "y_hat": y_hat,

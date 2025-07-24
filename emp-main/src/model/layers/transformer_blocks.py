@@ -328,7 +328,7 @@ class Block(nn.Module):
                 dim,
                 num_heads=num_heads,
                 dropout=attn_drop,
-                bias=qkv_bias,
+                add_bias_kv=qkv_bias,
                 batch_first=True,
                 kdim=kdim,
                 vdim=vdim

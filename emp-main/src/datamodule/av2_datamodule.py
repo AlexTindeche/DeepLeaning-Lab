@@ -3,6 +3,8 @@ from typing import Optional
 
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader as TorchDataLoader
+from torch.utils.data import Subset
+import torch
 
 from .av2_dataset import Av2Dataset, collate_fn
 
@@ -34,18 +36,41 @@ class Av2DataModule(LightningDataModule):
         self.prefetch_factor = prefetch_factor
         
 
-    def setup(self, stage: Optional[str] = None) -> None:
+    def setup(self, stage: Optional[str] = None, train_fraction: float = 1.0, 
+              val_fraction: float = 1.0, test_fraction: float = 1.0) -> None:
         if not self.test:
-            self.train_dataset = Av2Dataset(
+            self.full_train_dataset = Av2Dataset(
                 data_root=self.data_root / self.data_folder, cached_split="train"
             )
-            self.val_dataset = Av2Dataset(
+            self.full_val_dataset = Av2Dataset(
                 data_root=self.data_root / self.data_folder, cached_split="val"
             )
+            
+            if train_fraction < 1.0:
+                train_size = int(len(self.full_train_dataset) * train_fraction)
+                val_size = int(len(self.full_val_dataset) * val_fraction)
+                train_indices = torch.randperm(len(self.full_train_dataset))[:train_size]
+                val_indices = torch.randperm(len(self.full_val_dataset))[:val_size]
+                self.train_dataset = Subset(self.full_train_dataset, train_indices)
+                self.val_dataset = Subset(self.full_val_dataset, val_indices)
+                print(f"Using {train_fraction*100}% of the training and validation datasets.")
+            else:
+                self.train_dataset = self.full_train_dataset
+                self.val_dataset = self.full_val_dataset
+                print("Using the full training and validation datasets.")
         else:
-            self.test_dataset = Av2Dataset(
+            self.full_test_dataset = Av2Dataset(
                 data_root=self.data_root / self.data_folder, cached_split="test"
             )
+            
+            if test_fraction < 1.0:
+                test_size = int(len(self.full_test_dataset) * test_fraction)
+                test_indices = torch.randperm(len(self.full_test_dataset))[:test_size]
+                self.test_dataset = Subset(self.full_test_dataset, test_indices)
+                print(f"Using {test_fraction*100}% of the test dataset.")
+            else:
+                self.test_dataset = self.full_test_dataset
+                print("Using the full test dataset.")
 
     def train_dataloader(self):
         return TorchDataLoader(

@@ -251,3 +251,128 @@ class EMP(nn.Module):
             "y_hat_eps": y_hat_eps,
             "x_agent": x_agent
         }
+        
+    def get_features(self, data):
+        hist_padding_mask = data["x_padding_mask"][:, :, :self.history_steps]
+        
+        hist_key_padding_mask = data["x_key_padding_mask"]
+
+        hist_feat = torch.cat(
+            [
+                data["x"],
+                data["x_velocity_diff"][..., None],
+                (~hist_padding_mask[..., None]).float(),
+            ],
+            dim=-1,
+        )
+
+        B, N, L, D = hist_feat.shape
+        hist_feat = hist_feat.view(B * N, L, D)
+        hist_feat_key_padding = hist_key_padding_mask.view(B * N)
+
+        ####################
+        # AGENT ENCODING
+
+        actor_feat = hist_feat[~hist_feat_key_padding]
+        
+        ts = torch.arange(self.history_steps).view(1, -1, 1).repeat(actor_feat.shape[0], 1, 1).to(actor_feat.device).float()
+        actor_feat = torch.cat([actor_feat, ts], dim=-1)
+
+        actor_feat = self.h_proj( actor_feat )
+        kpm = hist_padding_mask.view(B*N, -1)[~hist_feat_key_padding]
+        for blk in self.h_embed:
+            actor_feat = blk(actor_feat, key_padding_mask=kpm)
+        actor_feat = torch.max(actor_feat, axis=1).values
+        actor_feat_tmp = torch.zeros(
+            B * N, actor_feat.shape[-1], device=actor_feat.device
+        )
+
+        #actor_feat_tmp[~hist_feat_key_padding] = actor_feat
+        mask_indices = torch.nonzero(~hist_feat_key_padding, as_tuple=True)
+        actor_feat_tmp.scatter_(0, mask_indices[0].unsqueeze(1).expand(-1, self.embed_dim), actor_feat)
+
+        actor_feat = actor_feat_tmp.view(B, N, actor_feat.shape[-1])
+
+        ####################
+        # LANE ENCODING
+
+        lane_padding_mask = data["lane_padding_mask"]
+
+        lane_normalized = data["lane_positions"] - data["lane_centers"].unsqueeze(-2)
+        lane_normalized = torch.cat(
+            [lane_normalized, (~lane_padding_mask[..., None]).float()], dim=-1
+        )
+        B, M, L, D = lane_normalized.shape
+        lane_feat = self.lane_embed(lane_normalized.view(-1, L, D).contiguous())
+        lane_feat = lane_feat.view(B, M, -1)
+
+        ####################
+        # POS ENCODING
+
+        x_centers = torch.cat([data["x_centers"], data["lane_centers"]], dim=1)
+        angles = torch.cat([data["x_angles"][:, :, self.history_steps-1], data["lane_angles"]], dim=1)    
+
+        x_angles = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1)
+        pos_feat = torch.cat([x_centers, x_angles], dim=-1)      
+        pos_embed = self.pos_embed(pos_feat)
+
+        ####################
+        # SCENE ENCODING
+
+        actor_type_embed = self.actor_type_embed[data["x_attr"][..., 2].long()]
+        lane_type_embed = self.lane_type_embed.repeat(B, M, 1)
+        actor_feat += actor_type_embed
+        lane_feat += lane_type_embed
+
+        x_encoder = torch.cat([actor_feat, lane_feat], dim=1)
+        key_padding_mask = torch.cat([data["x_key_padding_mask"], data["lane_key_padding_mask"]], dim=1)           
+
+        x_encoder = x_encoder + pos_embed
+
+        for blk in self.blocks:
+            x_encoder = blk(x_encoder, key_padding_mask=key_padding_mask)
+        x_encoder = self.norm(x_encoder)
+
+        ####################
+        # DECODING        
+
+        x_agent = x_encoder[:, 0] 
+        x_others = x_encoder[:, 1:N]
+
+
+        others_feat = self.dense_predictor(x_others)  # Keep as [B, N-1, 256]
+
+        # Apply decoder projection if needed
+        if self.decoder_proj is not None:
+            x_agent_decoder = self.decoder_proj(x_agent)
+            x_encoder_decoder = self.decoder_proj(x_encoder)
+        else:
+            x_agent_decoder = x_agent
+            x_encoder_decoder = x_encoder
+
+        # Since we removed the final layers, we need to manually call the decoder layers
+        # to get the features instead of using the full forward pass
+        B = x_agent_decoder.shape[0]
+        mode_embeds = self.decoder.mode_embed.weight.view(1, self.decoder.k, self.decoder.embed_dim).repeat(B, 1, 1)
+        x_decoder_input = x_agent_decoder.unsqueeze(1).repeat(1, self.decoder.k, 1) + mode_embeds
+        
+        # Get features from the modified decoder layers (without final linear layers)
+        loc_feat = self.decoder.loc(x_decoder_input)  # This now outputs [B*k, feature_dim] instead of coordinates
+        pi_feat = self.decoder.pi(x_decoder_input)   # This now outputs [B*k, feature_dim] instead of probabilities
+        
+        # Reshape to [B, k, feature_dim] and then take mean over modes for simplicity
+        k = self.decoder.k
+        loc_feat = loc_feat.view(B, k, -1).mean(dim=1)  # [B, feature_dim]
+        pi_feat = pi_feat.view(B, k, -1).mean(dim=1)    # [B, feature_dim]
+        
+        # For others_feat, we might need to aggregate across agents
+        if others_feat.dim() == 3:  # [B, N-1, feature_dim]
+            others_feat = others_feat.mean(dim=1)  # [B, feature_dim] - average over other agents
+        
+        # Combine all features
+        combined_feat = torch.cat([x_agent, loc_feat, pi_feat, others_feat], dim=-1)
+        
+        return combined_feat
+            
+        
+        

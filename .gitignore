@@ -171,3 +171,5 @@ cython_debug/
 .vscode
 outputs/
 submission/
+*.pth
+*.pkl

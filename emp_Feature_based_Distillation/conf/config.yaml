@@ -1,7 +1,46 @@
+# defaults:
+#   - hydra: default
+#   - datamodule: av2
+#   - model: student_distill
+
+# seed: 2333
+# monitor: val_loss
+# save_top_k: 10
+
+# data_root:
+# checkpoint:
+# pretrained_weights:
+# dm: av2
+# output: ${model.name}-${model.phase}_${dm}
+
+# # trainer
+# num_workers: 12
+# prefetch_factor: 4
+# pin_memory: true 
+# gpus: 1
+# sync_bn: true
+# batch_size: 64
+# epochs: 60
+# warmup_epochs: 10
+
+# # optimizer
+# lr: 0.001
+# weight_decay: 1e-4
+# gradient_clip_val: 3
+# gradient_clip_algorithm: norm
+
+# limit_train_batches:
+# limit_val_batches:
+# limit_test_batches:
+# log_model: all
+# test: false
+
+# wandb: online
+
 defaults:
   - hydra: default
   - datamodule: av2
-  - model: emp
+  - model: student_distill
 
 seed: 2333
 monitor: val_loss
@@ -19,9 +58,9 @@ gpus: 1
 sync_bn: true
 batch_size: 128
 #was set to 60
-epochs: 10
+epochs: 60
 #was set to 10
-warmup_epochs: 2
+warmup_epochs: 10
 
 # optimizer
 lr: 0.001
@@ -35,4 +74,4 @@ limit_test_batches:
 log_model: all
 test: false
 
-wandb: disable
+wandb: online

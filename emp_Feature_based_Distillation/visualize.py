@@ -30,7 +30,8 @@ def main():
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
     if predict:
-        chkpt_fpath = "checkpoints/empd.ckpt"
+        # chkpt_fpath = "checkpoints/empm.ckpt"
+        chkpt_fpath = "outputs/emp-forecast_av2/2025-07-24/00-55-27/checkpoints/last.ckpt"
         assert os.path.exists(chkpt_fpath), "chkpt files does not exist, update path to checkpoint"
         model = Model.load_from_checkpoint(chkpt_fpath, pretrained_weights=chkpt_fpath)
         # changed to work on cpu
@@ -68,6 +69,7 @@ def main():
             static_map = ArgoverseStaticMap.from_json(map_file)
             if predict:
                 prediction = batch_pred[0][b].squeeze()
+                print(prediction[-1, :, :][np.newaxis, :, :])
                 visualize_scenario(scenario, static_map, title="{}".format(scene_id), prediction=prediction, tight=True, timestep=49 if split == "test" else 50)
             else:
                 visualize_scenario(scenario, static_map, title="{}".format(scene_id), tight=True, timestep=49 if split == "test" else 50)

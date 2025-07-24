@@ -1,0 +1,32 @@
+
+
+
+name: emp
+phase: forecast
+
+target:
+  _target_: src.model.trainer_forecast.Trainer
+  dimStudent: 32
+  encoder_depthStudent: 2
+  num_headsStudent: 4
+  mlp_ratioStudent: 2.0
+  
+  dimTeacher: 128
+  encoder_depthTeacher: 4
+  num_headsTeacher: 8
+  mlp_ratioTeacher: 4.0
+
+  future_steps: 60
+  historical_steps: 50
+  qkv_bias: False
+  drop_path: 0.2
+  pretrained_weights: checkpoints/empd.ckpt
+  lr: ${lr}
+  weight_decay: ${weight_decay}
+  epochs: ${epochs}
+  warmup_epochs: ${warmup_epochs}
+  decoder: 
+    _target_: src.model.decoder.mlp_decoder.MLPDecoder
+    embed_dim: 64
+    num_modes: 3
+    hidden_dim: 128

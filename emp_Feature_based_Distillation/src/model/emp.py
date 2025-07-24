@@ -39,9 +39,9 @@ class EMP(nn.Module):
             assert False, "Unknown Decoder Type in Config (must be <mlp> or <detr>, but is <{}>)".format(decoder)
     
         self.adapter = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
+            nn.Linear(32, 64),
             nn.ReLU(),
-            nn.Linear(embed_dim, embed_dim)
+            nn.Linear(64, 128),
         )
 
         self.h_proj = nn.Linear(5, embed_dim)

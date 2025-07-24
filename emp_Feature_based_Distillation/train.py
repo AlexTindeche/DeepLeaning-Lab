@@ -59,6 +59,7 @@ def main(conf):
 
     model = instantiate(conf.model.target)
     datamodule = instantiate(conf.datamodule)
+
     trainer.fit(model, datamodule, ckpt_path=conf.checkpoint)
 
 

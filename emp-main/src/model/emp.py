@@ -370,7 +370,7 @@ class EMP(nn.Module):
             others_feat = others_feat.mean(dim=1)  # [B, feature_dim] - average over other agents
         
         # Combine all features
-        combined_feat = torch.cat([x_agent, loc_feat, pi_feat, others_feat], dim=-1)
+        combined_feat = torch.cat([loc_feat, pi_feat, others_feat], dim=-1)
         
         return combined_feat
             

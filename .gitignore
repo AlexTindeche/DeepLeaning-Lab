@@ -166,3 +166,6 @@ outputs/
 submission/
 data_*/
 wandb/
+*.pth
+*.pkl
+*.tar

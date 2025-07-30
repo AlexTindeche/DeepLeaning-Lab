@@ -28,7 +28,7 @@ def main():
     dataset = Av2Dataset(data_root=data_root, cached_split=split)
 
     if predict:
-        chkpt_fpath = "checkpoints/empd.ckpt"
+        chkpt_fpath = "checkpoints/empd-base.ckpt"
         assert os.path.exists(chkpt_fpath), "chkpt files does not exist, update path to checkpoint"
         model = Model.load_from_checkpoint(chkpt_fpath, pretrained_weights=chkpt_fpath)
         model = model.eval().cuda()

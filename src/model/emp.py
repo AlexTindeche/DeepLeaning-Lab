@@ -248,8 +248,10 @@ class EMP(nn.Module):
             x_agent_decoder = x_agent
             x_encoder_decoder = x_encoder
 
-        y_hat, pi = self.decoder(x_agent_decoder, x_encoder_decoder, key_padding_mask, N)
-        
+        if get_embeddings:
+            y_hat, pi, loc_emb, pi_emb = self.decoder(x_agent_decoder, x_encoder_decoder, key_padding_mask, N, get_embeddings=get_embeddings)
+        else:
+            y_hat, pi = self.decoder(x_agent_decoder, x_encoder_decoder, key_padding_mask, N, get_embeddings=get_embeddings)
         y_hat_eps = y_hat[:, :, -1]
 
         if get_embeddings:
@@ -259,10 +261,8 @@ class EMP(nn.Module):
                 "y_hat_others": y_hat_others,
                 "y_hat_eps": y_hat_eps,
                 "x_agent": x_agent,
-                "actor_feat_pred": agent_feat_emb,
-                "lane_feat_pred": lane_feat_emb,
-                "pos_embed_pred": pos_embed_emb,
-                "scene_encoder_pred": scene_encoder_emb,
+                "loc_emb": loc_emb,
+                "pi_emb": pi_emb,
             }
 
         return {

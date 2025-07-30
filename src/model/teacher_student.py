@@ -11,7 +11,11 @@ from src.utils.optim import WarmupCosLR
 from src.metrics import MR, brierMinFDE, minADE, minFDE
 from src.utils.submission_av2 import SubmissionAv2
 
-from src.utils.rkd.loss import AttentionTransfer, RKdAngle, RkdDistance
+from src.utils.rkd.loss import AttentionTransfer, RKdAngle, RkdDistance, RKdAngleBatched, RKdAngleBatchedMemoryEff
+from src.utils.rkd.rkd_utils import pdist_batched
+
+
+torch.set_printoptions(sci_mode=False)
 
 
 class TeacherStudentTrainer(pl.LightningModule):
@@ -30,6 +34,8 @@ class TeacherStudentTrainer(pl.LightningModule):
             pretrained_weights_teacher="../checkpoints/empm-base.ckpt",
             pretrained_weights_student=None,
             batch_size=64,
+            student_embed_dim=[128, 128, 128, 128],
+            teacher_embed_dim=[128, 128, 128, 128],
         ) -> None:
 
         super().__init__()
@@ -38,7 +44,7 @@ class TeacherStudentTrainer(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.batch_size = batch_size
-        self.save_hyperparameters(ignore=["teacher_model", "student_model"])
+        self.save_hyperparameters()
 
         self.history_steps = historical_steps
         self.future_steps = future_steps
@@ -46,6 +52,8 @@ class TeacherStudentTrainer(pl.LightningModule):
 
         self.teacher = teacher_model
         self.student = student_model
+        self.student_embed_dim = student_embed_dim
+        self.teacher_embed_dim =teacher_embed_dim
 
         if pretrained_weights_teacher is not None:
             self.teacher.load_from_checkpoint(pretrained_weights_teacher)
@@ -63,8 +71,7 @@ class TeacherStudentTrainer(pl.LightningModule):
         # NOT USED CURRENTLY
         self.attention_ratio = loss_weights["attention_ratio"]
 
-        self.proj_layers = nn.ModuleList()
-        self._projections_initialized = False
+        self._init_projection_layers()
         
         # Freeze teacher if pre-trained
         if pretrained:
@@ -103,35 +110,6 @@ class TeacherStudentTrainer(pl.LightningModule):
         )
         predictions = [predictions, out] if full else predictions
         return predictions, prob   
-    
-    def cal_loss(self, out, data, batch_idx=0):
-        y_hat, pi, y_hat_others = out["y_hat"], out["pi"], out["y_hat_others"]
-        y, y_others = data["y"][:, 0], data["y"][:, 1:]
-
-        loss = 0
-        B = y_hat.shape[0]
-        B_range = range(B)
-
-
-        l2_norm = torch.norm(y_hat[..., :2] - y.unsqueeze(1), dim=-1).sum(-1)
-
-        best_mode = torch.argmin(l2_norm, dim=-1)
-        y_hat_best = y_hat[B_range, best_mode]
-        agent_reg_loss = F.smooth_l1_loss(y_hat_best[..., :2], y)
-
-        agent_cls_loss = F.cross_entropy(pi, best_mode.detach())
-        loss += agent_reg_loss + agent_cls_loss
-        
-        others_reg_mask = ~data["x_padding_mask"][:, 1:, self.history_steps:]
-        others_reg_loss = F.smooth_l1_loss(y_hat_others[others_reg_mask], y_others[others_reg_mask])
-        loss += others_reg_loss
-    
-        return {
-            "loss": loss,
-            "reg_loss": agent_reg_loss.item(),
-            "cls_loss": agent_cls_loss.item(),
-            "others_reg_loss": others_reg_loss.item(),
-        }
 
 
     def training_step(self, batch, batch_idx):
@@ -142,9 +120,9 @@ class TeacherStudentTrainer(pl.LightningModule):
         # Student forward
         hidden_embbeds_student, student_outputs = self.student(batch, get_embeddings=True)
         
-        losses = self.cal_loss(student_outputs, batch, 
-                               kd_loss = 0)
-                               #kd_loss=self.rdk_loss(hidden_embbeds_student, hidden_embbeds_teacher))
+        losses = self.cal_loss(student_outputs, batch, teacher_out=teacher_outputs,
+                               #kd_loss = 0)
+                               kd_loss=self.rdk_loss(hidden_embbeds_student, hidden_embbeds_teacher))
         
         for k, v in losses.items():
             self.log(
@@ -158,7 +136,7 @@ class TeacherStudentTrainer(pl.LightningModule):
 
         return losses["loss"]
     
-    def rdk_loss(self, student_embeds, teacher_embeds):
+    def rdk_loss(self, student_embeds, teacher_embeds, sample_k=2):
         """ 
         Calculate the RKD loss between student and teacher embeddings.
         """
@@ -172,30 +150,35 @@ class TeacherStudentTrainer(pl.LightningModule):
             self._init_projection_layers(student_embeds, teacher_embeds)
 
         for i in range(len(student_embeds)):
-            for j in range(self.batch_size):
-                student_emb = student_embeds[i][j]
-                teacher_emb = teacher_embeds[i][j]
+            student_emb = student_embeds[i]
+            teacher_emb = teacher_embeds[i]
 
-                # Apply projection if needed
-                if self.proj_layers[i] is not None:
-                    student_emb_projected = self.proj_layers[i](student_emb)
+            # Apply projection if needed
+            if self.proj_layers[i] is not None:
+                student_emb_projected = self.proj_layers[i](student_emb)
 
+             # Method 1: Random mask
+            mask = self.create_random_mask(student_emb.shape[0], sample_k, student_emb.device)
+            
+            # Apply mask to get only the selected embeddings
+            masked_student = student_emb_projected[mask].view(-1, student_emb_projected.shape[-1])
+            masked_teacher = teacher_emb[mask].view(-1, teacher_emb.shape[-1])
+            # student_flat = masked_student.reshape(-1, teacher_emb.shape[-1])
+            # teacher_flat = masked_teacher.reshape(-1, teacher_emb.shape[-1])
+            dist_loss = self.dist_ratio * self.dist_criterion(masked_student, masked_teacher)
+            angle_loss = self.angle_ratio * self.angle_criterion(masked_student, masked_teacher)
+            loss = loss + dist_loss + angle_loss
 
-                dist_loss = self.dist_ratio * self.dist_criterion(student_emb_projected, teacher_emb)
-                angle_loss = self.angle_ratio * self.angle_criterion(student_emb_projected, teacher_emb)
-                loss += dist_loss + angle_loss
-
-        loss = loss / self.batch_size
         return loss
     
-    def _init_projection_layers(self, student_embeds, teacher_embeds):
+    def _init_projection_layers(self):
         """
         Initialize projection layers if dimensions differ
         """
         self.proj_layers = nn.ModuleList()
-        for s, t in zip(student_embeds, teacher_embeds):
-            s_dim = s.shape[-1]
-            t_dim = t.shape[-1]
+        for s, t in zip(self.student_embed_dim, self.teacher_embed_dim):
+            s_dim = s
+            t_dim = t
             if s_dim != t_dim:
                 # Small MLP: 2-layer projection (s_dim → t_dim)
                 self.proj_layers.append(
@@ -210,10 +193,33 @@ class TeacherStudentTrainer(pl.LightningModule):
 
         self._projections_initialized = True
 
+    def create_random_mask(self, N, sample_k, device):
+        """
+        Create a random boolean mask that selects sample_k out of N elements.
+        
+        Args:
+            N: total number of elements
+            sample_k: number of elements to keep (True)
+            device: device for the mask tensor
+        
+        Returns:
+            mask: [N] boolean tensor with sample_k True values
+        """
+        mask = torch.zeros(N, dtype=torch.bool, device=device)
+        indices = torch.randperm(N, device=device)[:sample_k]
+        mask[indices] = True
+        return mask
     
-    def cal_loss(self, out, data, batch_idx=0, kd_loss=0.):
+    def cal_loss(self, out, data, batch_idx=0, kd_loss=0., teacher_out=None):
         y_hat, pi, y_hat_others = out["y_hat"], out["pi"], out["y_hat_others"]
         y, y_others = data["y"][:, 0], data["y"][:, 1:]
+
+        teacher_loc_emb = None
+        teacher_pi_emb = None
+        # Extract teacher outputs
+        if teacher_out is not None:
+            teacher_loc_emb = teacher_out["loc_emb"].detach() if "y_hat" in teacher_out else None
+            teacher_pi_emb = teacher_out["pi_emb"].detach() if "y_hat" in teacher_out else None
 
         loss = 0
         B = y_hat.shape[0]
@@ -227,13 +233,47 @@ class TeacherStudentTrainer(pl.LightningModule):
         agent_reg_loss = F.smooth_l1_loss(y_hat_best[..., :2], y)
 
         agent_cls_loss = F.cross_entropy(pi, best_mode.detach())
-        loss += agent_reg_loss + agent_cls_loss
+        loss = loss + agent_reg_loss + agent_cls_loss
         
         others_reg_mask = ~data["x_padding_mask"][:, 1:, self.history_steps:]
         others_reg_loss = F.smooth_l1_loss(y_hat_others[others_reg_mask], y_others[others_reg_mask])
-        loss += others_reg_loss
+        loss = loss + others_reg_loss
 
-        loss += self.kd_weight * kd_loss
+        if teacher_loc_emb is not None:
+            # --- Knowledge Distillation Loss on location prediction embeddings---
+            
+            # if self.teacher.embed_dim != self.student.embed_dim:
+            #     # Apply projection layers if dimensions differ
+            #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
+            # else:
+            student_loc_emb = out["loc_emb"]
+            rkd_loss = 0
+            rkd_loss_distance = 0
+            # print(teacher_loc_emb.shape, student_loc_emb.shape)
+            for actor in range(teacher_loc_emb.shape[1]):
+                rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+            rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
+            rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
+            loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
+
+        if teacher_pi_emb is not None:
+            # --- Knowledge Distillation Loss on pi embeddings---
+            # if self.teacher.embed_dim != self.student.embed_dim:
+            #     # Apply projection layers if dimensions differ
+            #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
+            # else:
+            student_loc_emb = out["loc_emb"]
+            rkd_loss = 0
+            rkd_loss_distance = 0
+            for actor in range(teacher_loc_emb.shape[1]):
+                rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+            rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
+            rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
+            loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
+       
+        loss = loss + self.kd_weight * kd_loss
     
         return {
             "loss": loss,
@@ -268,6 +308,9 @@ class TeacherStudentTrainer(pl.LightningModule):
             batch_size=1,
             sync_dist=True,
         )
+
+    def on_train_start(self) -> None:
+        torch.autograd.set_detect_anomaly(True)
 
     def on_test_start(self) -> None:
         save_dir = Path("./submission")

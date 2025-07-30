@@ -16,12 +16,13 @@ target:
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
   batch_size: ${batch_size}
-
+  student_embed_dim: [32, 32, 32, 32]  # Embedding dimensions for each student layer embedding
+  teacher_embed_dim: [128, 128, 128, 128] # Embedding dimensions for each teacher layer embedding
 
   
   # Distillation-specific settings
   loss_weights:
-    kd: 0.7
+    kd: 0.5
     ce: 0.3
       # Relational Knowledge Distillation (RKD) settings
     rkd_distance: 1

@@ -7,7 +7,7 @@ target:
   
   # Training hyperparameters
   pretrained: true
-  pretrained_weights_teacher: checkpoints\empm-base.ckpt
+  pretrained_weights_teacher: "/home/alex/UNI EMERGENCY/Project/DeepLeaning-Lab/checkpoints/empm-base.ckpt"
   pretrained_weights_student: ${pretrained_weights}
   historical_steps: 50
   future_steps: 60  
@@ -22,12 +22,14 @@ target:
   
   # Distillation-specific settings
   loss_weights:
-    kd: 0.5
-    ce: 0.3
-      # Relational Knowledge Distillation (RKD) settings
-    rkd_distance: 1
-    rkd_angle: 2
+    # kd: 0.5
+    # ce: 0.3
+    #   # Relational Knowledge Distillation (RKD) settings
+    # rkd_distance: 1
+    # rkd_angle: 2
     attention_ratio: 0
+    tau: 0.2
+    NEG_RATIO: 0.2
 
   # Teacher model definition
   teacher_model:

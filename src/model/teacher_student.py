@@ -31,7 +31,7 @@ class TeacherStudentTrainer(pl.LightningModule):
             epochs=60,
             warmup_epochs=10,
             pretrained = True,
-            pretrained_weights_teacher="../checkpoints/empm-base.ckpt",
+            pretrained_weights_teacher="./checkpoints/empm-base.ckpt",
             pretrained_weights_student=None,
             batch_size=64,
             student_embed_dim=[128, 128, 128, 128],
@@ -61,13 +61,15 @@ class TeacherStudentTrainer(pl.LightningModule):
         if pretrained_weights_student is not None:
             self.student.load_from_checkpoint(pretrained_weights_student)
 
-        self.ce_weight = loss_weights["ce"]
-        self.kd_weight = loss_weights["kd"]
+        # self.ce_weight = loss_weights["ce"]
+        # self.kd_weight = loss_weights["kd"]
         self.dist_criterion = RkdDistance()
         self.angle_criterion = RKdAngle()
         self.attention_criterion = AttentionTransfer()
-        self.dist_ratio = loss_weights["rkd_distance"]
-        self.angle_ratio = loss_weights["rkd_angle"]
+        # self.dist_ratio = loss_weights["rkd_distance"]
+        # self.angle_ratio = loss_weights["rkd_angle"]
+        self.tau = loss_weights["tau"]
+        self.NEG_RATIO = loss_weights["NEG_RATIO"]
         # NOT USED CURRENTLY
         self.attention_ratio = loss_weights["attention_ratio"]
 
@@ -113,6 +115,7 @@ class TeacherStudentTrainer(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
+        
         # Teacher forward (no gradients)
         with torch.no_grad():
             hidden_embbeds_teacher, teacher_outputs = self.teacher(batch, get_embeddings=True)
@@ -121,9 +124,8 @@ class TeacherStudentTrainer(pl.LightningModule):
         hidden_embbeds_student, student_outputs = self.student(batch, get_embeddings=True)
         
         losses = self.cal_loss(student_outputs, batch, teacher_out=teacher_outputs,
-                               #kd_loss = 0)
-                               kd_loss=self.rdk_loss(hidden_embbeds_student, hidden_embbeds_teacher))
-        
+                               kd_loss=0)
+
         for k, v in losses.items():
             self.log(
                 f"train/{k}",
@@ -132,6 +134,13 @@ class TeacherStudentTrainer(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=False,
                 sync_dist=True,
+            )
+            
+        if batch_idx % 30 == 0:
+            print(
+                f"Epoch {self.curr_ep} | Batch {batch_idx} | "
+                f"Critic pi loss: {losses['critic_pi_loss']:.4f} | "
+                f"Critic loc loss: {losses['critic_loc_loss']:.4f}"
             )
 
         return losses["loss"]
@@ -170,6 +179,83 @@ class TeacherStudentTrainer(pl.LightningModule):
             loss = loss + dist_loss + angle_loss
 
         return loss
+    
+    def h_score(self, t_feat, s_feat, tau=0.1, N_over_M=1.0):
+        """
+        Compute h(T, S) as defined in Eq (19) in the paper.
+        """
+        # Normalize features 
+        t_feat = F.normalize(t_feat, dim=1)
+        s_feat = F.normalize(s_feat, dim=1)
+
+        # Similarity scores
+        sim = torch.sum(t_feat * s_feat, dim=1) / tau  # Exponent of e for numerator
+        numerator = torch.exp(sim)
+        denominator = numerator + N_over_M
+        h = numerator / denominator  # shape: (B,)
+        return h    
+    
+    def critic_loss(self, t_pos, s_pos, t_neg, s_neg, tau=0.1, N=1.0, M = 1.0):
+        """
+        Compute the full critic loss:
+        - t_pos, s_pos: matched teacher/student features (C=1)
+        - t_neg, s_neg: mismatched features (C=0)
+        """
+        N_over_M = N / M if M != 0 else N / (M + 1e-8)  # Avoid division by zero
+        
+        # Positive pair scores
+        h_pos = self.h_score(t_pos, s_pos, tau, N_over_M)
+        loss_pos = torch.median(torch.log(h_pos + 1e-8))  # Explicit Monte Carlo estimate
+
+        # Negative pair scores
+        h_neg = self.h_score(t_neg, s_neg, tau, N_over_M)
+        loss_neg = torch.median(torch.log(1 - h_neg + 1e-8))  # Explicit Monte Carlo estimate
+
+        # Combine as in Eq (18)
+        loss = -(loss_pos + N * loss_neg)
+        return loss
+    
+    
+    def contrastive_loss_batch_online(self, teacher_feats, student_feats, tau=0.1, NEG_RATIO=0.1):
+        """
+        Online contrastive loss function using custom critic loss.
+        - Negative pairs: randomly sample neg_size pairs (i, j) where i != j
+        - Positive pairs: use pos_size pairs (i, i)
+        """
+        batch_size = student_feats.shape[0]
+        device = student_feats.device
+
+        if batch_size == 1:
+            return F.mse_loss(student_feats, teacher_feats)
+
+        neg_size = int(batch_size * NEG_RATIO)
+        pos_size = batch_size - neg_size
+
+        # --- Positive pairs (i == j) ---
+        pos_indices = torch.arange(pos_size, device=device)
+        t_pos = teacher_feats[pos_indices]
+        s_pos = student_feats[pos_indices]
+
+        # --- Negative pairs (i != j) ---
+        neg_indices_1 = torch.randint(0, batch_size, (neg_size,), device=device)
+        neg_indices_2 = torch.randint(0, batch_size, (neg_size,), device=device)
+        # Ensure i != j for negative pairs
+        mask = neg_indices_1 != neg_indices_2
+        while not torch.all(mask):
+            num_to_replace = int((~mask).sum().item())
+            neg_indices_2[~mask] = torch.randint(0, batch_size, (num_to_replace,), device=device)
+            mask = neg_indices_1 != neg_indices_2
+
+        t_neg = teacher_feats[neg_indices_1]
+        s_neg = student_feats[neg_indices_2]
+
+        # Compute critic loss
+        loss = self.critic_loss(
+            t_pos, s_pos, t_neg, s_neg, tau=tau, N=neg_size, M=pos_size
+        )
+        return loss
+
+
     
     def _init_projection_layers(self):
         """
@@ -247,15 +333,19 @@ class TeacherStudentTrainer(pl.LightningModule):
             #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
             # else:
             student_loc_emb = out["loc_emb"]
-            rkd_loss = 0
-            rkd_loss_distance = 0
+            critic_loss = 0
             # print(teacher_loc_emb.shape, student_loc_emb.shape)
             for actor in range(teacher_loc_emb.shape[1]):
-                rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-                rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-            rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
-            rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
-            loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
+                # rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                # rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                critic_loss += self.contrastive_loss_batch_online(
+                    teacher_loc_emb[:, actor], student_loc_emb[:, actor],
+                    tau=self.tau,
+                    NEG_RATIO=0.2
+                )
+            # print("critic_loss loc", critic_loss / teacher_loc_emb.shape[1])
+            critic_loc_loss = critic_loss / teacher_loc_emb.shape[1]
+            loss = loss + critic_loc_loss
 
         if teacher_pi_emb is not None:
             # --- Knowledge Distillation Loss on pi embeddings---
@@ -264,22 +354,24 @@ class TeacherStudentTrainer(pl.LightningModule):
             #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
             # else:
             student_loc_emb = out["loc_emb"]
-            rkd_loss = 0
-            rkd_loss_distance = 0
+            critic_loss = 0
             for actor in range(teacher_loc_emb.shape[1]):
-                rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-                rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-            rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
-            rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
-            loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
-       
-        loss = loss + self.kd_weight * kd_loss
+                critic_loss += self.contrastive_loss_batch_online(
+                    teacher_loc_emb[:, actor], student_loc_emb[:, actor],
+                    tau=self.tau,
+                    NEG_RATIO=self.NEG_RATIO
+                )
+            # print("critic_loss pi", critic_loss / teacher_loc_emb.shape[1])
+            critic_pi_loss = critic_loss / teacher_loc_emb.shape[1]
+            loss = loss + critic_pi_loss
+
     
         return {
             "loss": loss,
             "reg_loss": agent_reg_loss.item(),
             "cls_loss": agent_cls_loss.item(),
-            "rdk_loss": kd_loss,
+            "critic_pi_loss": critic_pi_loss.item() if teacher_pi_emb is not None else 0,
+            "critic_loc_loss": critic_loc_loss.item() if teacher_loc_emb is not None else 0,
             "others_reg_loss": others_reg_loss.item(),
         }
     

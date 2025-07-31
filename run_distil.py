@@ -10,6 +10,8 @@ from pytorch_lightning.callbacks import (LearningRateMonitor, ModelCheckpoint,
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 
 
+'''FOR STUDENT MODEL'''
+
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(conf):
     torch.use_deterministic_algorithms(True)
@@ -62,13 +64,6 @@ def main(conf):
     model = instantiate(conf.model.target)
     datamodule = instantiate(conf.datamodule)
 
-    # if conf.calculate_flops:
-    #     macs, params = get_model_complexity_info(
-    #         model,
-    #         datamodule,
-    #     )
-    #     print(f"FLOPs: {macs}, Params: {params}")
-    #     return
     trainer.fit(model, datamodule, ckpt_path=conf.checkpoint)
 
 

@@ -41,9 +41,13 @@ class MultimodalDecoder(nn.Module):
         x = x.unsqueeze(1).repeat(1, self.k, 1) + mode_embeds
 
         loc = self.loc(x).view(-1, self.k, self.future_steps, 2)
-        pi = self.pi(x).squeeze(-1)
 
-        # logits
-        pi_logits = self.pi(x).squeeze(-1)  #(B, k)
+         # logits
+        # pi_logits = self.pi(x).squeeze(-1)  #(B, k)
+
+        # pi = self.pi(x).squeeze(-1)
+
+        pi_logits = self.pi(x).squeeze(-1)
+        pi = torch.softmax(pi_logits, dim=-1)
         
         return loc, pi, pi_logits

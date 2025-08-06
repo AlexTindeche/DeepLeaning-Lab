@@ -1,32 +1,76 @@
-
-
-
 name: emp
 phase: forecast
 
-target:
-  _target_: src.model.trainer_forecast.Trainer
-  dimStudent: 32
-  encoder_depthStudent: 2
-  num_headsStudent: 4
-  mlp_ratioStudent: 2.0
-  
-  dimTeacher: 128
-  encoder_depthTeacher: 4
-  num_headsTeacher: 8
-  mlp_ratioTeacher: 4.0
-
+target_hint_distill:
+  _target_: src.model.trainer_forecast_hint_distilation.hintBasedTrainer
   future_steps: 60
   historical_steps: 50
-  qkv_bias: False
-  drop_path: 0.2
-  pretrained_weights: checkpoints/empd.ckpt
+  pretrained: true
+  pretrained_weights_teacher: ${hydra:runtime.cwd}/checkpoints/empm.ckpt
+  pretrained_weights_student: ${pretrained_weights}
   lr: ${lr}
   weight_decay: ${weight_decay}
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
-  decoder: 
-    _target_: src.model.decoder.mlp_decoder.MLPDecoder
-    embed_dim: 64
-    num_modes: 3
-    hidden_dim: 128
+
+  student_model:
+    _target_: src.model.emp.EMP
+    embed_dim: 32
+    encoder_depth: 2
+    num_heads: 4
+    mlp_ratio: 2.0
+    qkv_bias: False
+    drop_path: 0.2
+    decoder: "mlp"
+      # _target_: src.model.decoder.mlp_decoder.MLPDecoder
+      # embed_dim: 64
+      # num_modes: 3
+      # hidden_dim: 128
+  
+  teacher_model:
+    _target_: src.model.emp.EMP
+    embed_dim: 128
+    encoder_depth: 4
+    num_heads: 8
+    mlp_ratio: 4.0
+    qkv_bias: False
+    drop_path: 0.2
+    decoder: "mlp"
+      # _target_: src.model.decoder.mlp_decoder.MLPDecoder
+      # embed_dim: 64
+      # num_modes: 3
+      # hidden_dim: 128
+
+target_normal_training:
+#student for benchmarking
+  # _target_: src.model.trainer_forecast.Trainer
+  # dim: 32
+  # historical_steps: 50
+  # future_steps: 60
+  # encoder_depth: 2
+  # num_heads: 4
+  # mlp_ratio: 2.0
+  # qkv_bias: False
+  # drop_path: 0.2
+  # pretrained_weights: ${pretrained_weights}
+  # lr: ${lr}
+  # weight_decay: ${weight_decay}
+  # epochs: ${epochs}
+  # warmup_epochs: ${warmup_epochs}
+  # decoder: mlp
+#teacher for benchmarking
+  _target_: src.model.trainer_forecast.Trainer
+  dim: 128
+  historical_steps: 50
+  future_steps: 60
+  encoder_depth: 4
+  num_heads: 8
+  mlp_ratio: 4.0
+  qkv_bias: False
+  drop_path: 0.2
+  pretrained_weights: ${pretrained_weights}
+  lr: ${lr}
+  weight_decay: ${weight_decay}
+  epochs: ${epochs}
+  warmup_epochs: ${warmup_epochs}
+  decoder: mlp

@@ -37,12 +37,22 @@ class EMP(nn.Module):
             from .layers.multimodal_decoder_emp_attn import MultimodalDecoder
         else:
             assert False, "Unknown Decoder Type in Config (must be <mlp> or <detr>, but is <{}>)".format(decoder)
-    
-        self.adapter = nn.Sequential(
-            nn.Linear(32, 64),
-            nn.ReLU(),
-            nn.Linear(64, 128),
-        )
+
+        self.hint_layers = [1,2,3]
+        teacher_dim = 128 
+
+        self.adapters = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(embed_dim, embed_dim // 2),# 32 -> 16
+                nn.LayerNorm(embed_dim // 2),
+                nn.ReLU(),
+                nn.Linear(embed_dim // 2, teacher_dim),            
+                nn.LayerNorm(teacher_dim),
+                nn.ReLU(),
+            )
+            for _ in self.hint_layers
+        ])
+
 
         self.h_proj = nn.Linear(5, embed_dim)
         self.h_embed = nn.ModuleList(
@@ -80,7 +90,7 @@ class EMP(nn.Module):
 
         self.actor_type_embed = nn.Parameter(torch.Tensor(4, embed_dim))
         self.lane_type_embed = nn.Parameter(torch.Tensor(1, 1, embed_dim))
-        
+        # k is seconds ahead prediction 
         k = 6
         self.decoder = MultimodalDecoder(embed_dim, self.future_steps, k=k)
         self.dense_predictor = nn.Sequential(
@@ -224,7 +234,7 @@ class EMP(nn.Module):
             "x_agent": x_agent,
             "feature_hint": feature_hint
         }
-    
+
     def get_guided_features(self, data):
         #W_guided
         # code from the forward method in the same file, up to the lane encoding 
@@ -253,20 +263,21 @@ class EMP(nn.Module):
         actor_feat = self.h_proj(actor_feat)
         kpm = hist_padding_mask.view(B * N, -1)[~hist_feat_key_padding]
 
-        for blk in self.h_embed:
+        # loops over to get more guided feature layers, up to a layer
+        for i, blk in enumerate(self.h_embed):
             actor_feat = blk(actor_feat, key_padding_mask=kpm)
 
-        actor_feat = torch.max(actor_feat, axis=1).values
+        # actor_feat = torch.max(actor_feat, axis=1).values
+        attn_weights = F.softmax(actor_feat.mean(dim=-1, keepdim=True), dim=1)  # [B*N_valid, L, 1]
+        actor_feat_pooled = torch.sum(actor_feat * attn_weights, dim=1)         # [B*N_valid, D]
 
         actor_feat_tmp = torch.zeros(B * N, actor_feat.shape[-1], device=actor_feat.device)
         mask_indices = torch.nonzero(~hist_feat_key_padding, as_tuple=True)
-        actor_feat_tmp.scatter_(0, mask_indices[0].unsqueeze(1).expand(-1, self.embed_dim), actor_feat)
+        actor_feat_tmp.scatter_(0, mask_indices[0].unsqueeze(1).expand(-1, self.embed_dim), actor_feat_pooled)
 
-        actor_feat = actor_feat_tmp.view(B, N, actor_feat.shape[-1])
-
-        return actor_feat
+        return actor_feat_tmp.view(B, N, actor_feat.shape[-1])
     
-    def get_hint_features(self, data, layer_index=2):
+    def get_hint_features(self, data, layer_index=1):
         #W_hint
         #code from the forward method in the same file, from lane encoding up to decoding
         # returns immediate featues for the hints
@@ -274,14 +285,18 @@ class EMP(nn.Module):
         actor_feat = self.get_guided_features(data)
 
         lane_padding_mask = data["lane_padding_mask"]
+
         lane_normalized = data["lane_positions"] - data["lane_centers"].unsqueeze(-2)
-        lane_normalized = torch.cat([lane_normalized, (~lane_padding_mask[..., None]).float()], dim=-1)
+        lane_normalized = torch.cat(
+            [lane_normalized, (~lane_padding_mask[..., None]).float()], dim=-1
+        )
         B, M, L, D = lane_normalized.shape
         lane_feat = self.lane_embed(lane_normalized.view(-1, L, D).contiguous())
         lane_feat = lane_feat.view(B, M, -1)
 
         x_centers = torch.cat([data["x_centers"], data["lane_centers"]], dim=1)
-        angles = torch.cat([data["x_angles"][:, :, self.history_steps-1], data["lane_angles"]], dim=1)
+        angles = torch.cat([data["x_angles"][:, :, self.history_steps - 1], data["lane_angles"]], dim=1)
+
         x_angles = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1)
         pos_feat = torch.cat([x_centers, x_angles], dim=-1)
         pos_embed = self.pos_embed(pos_feat)
@@ -293,14 +308,25 @@ class EMP(nn.Module):
 
         x_encoder = torch.cat([actor_feat, lane_feat], dim=1)
         key_padding_mask = torch.cat([data["x_key_padding_mask"], data["lane_key_padding_mask"]], dim=1)
+
         x_encoder = x_encoder + pos_embed
 
+        x_encoder = F.layer_norm(x_encoder, (self.embed_dim,))
+        x_encoder = x_encoder + 0.1 * torch.sin(x_encoder)  
+
+        # loops over the blocks to get more diverse hint feature layers, up to a layer
+        features = []
         for i, blk in enumerate(self.blocks):
             x_encoder = blk(x_encoder, key_padding_mask=key_padding_mask)
-            if i == layer_index:
-                return x_encoder
 
+            if layer_index is not None and i == layer_index:
+                return x_encoder
+            if layer_index is None and i in self.hint_layers:
+                features.append(x_encoder)
+
+        if layer_index is None:
+            return features  # [B, N+M, D]
         return self.norm(x_encoder)
     
     def adapt_student_features(self, features):
-        return self.adapter(features)
+        return self.adapters(features)

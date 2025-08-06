@@ -2,7 +2,7 @@ name: emp
 phase: forecast
 
 target:
-  _target_: src.model.trainer_forecast.Trainer
+  _target_: src.model.trainer_forecast.hint_based_trainer
   dim: 128
   historical_steps: 50
   future_steps: 60

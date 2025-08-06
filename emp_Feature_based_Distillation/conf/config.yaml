@@ -53,14 +53,15 @@ dm: av2
 output: ${model.name}-${model.phase}_${dm}
 
 # trainer
-num_workers: 6
+num_workers: 0
 gpus: 1
 sync_bn: true
-batch_size: 128
+batch_size: 64
 #was set to 60
-epochs: 60
+epochs: 20
 #was set to 10
 warmup_epochs: 10
+hint_epochs: 10
 
 # optimizer
 lr: 0.001
@@ -75,3 +76,5 @@ log_model: all
 test: false
 
 wandb: online
+
+isHintDistil: enabled

@@ -33,11 +33,11 @@ class Trainer(pl.LightningModule):
         warmup_epochs: int = 10,
         epochs: int = 60,
         weight_decay: float = 1e-4,
-        decoder="detr",  # Can be string or dict with configuration
+        decoder="mlp",  # Can be string or dict with configuration
         attention_type: str = "standard",  # "standard", "linear", "performer"
-        decoder_embed_dim: int = None,  # Optional decoder parameters
-        decoder_num_modes: int = None,
-        decoder_hidden_dim: int = None
+        decoder_embed_dim: int = 128,  # Optional decoder parameters
+        decoder_num_modes: int = 6,
+        decoder_hidden_dim: int = 256
     ) -> None:
         super(Trainer, self).__init__()
         self.warmup_epochs = warmup_epochs

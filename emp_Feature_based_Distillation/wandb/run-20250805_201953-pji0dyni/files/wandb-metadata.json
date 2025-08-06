@@ -1,0 +1,45 @@
+{
+  "os":  "macOS-15.5-arm64-arm-64bit",
+  "python":  "CPython 3.9.23",
+  "startedAt":  "2025-08-05T18:19:53.766404Z",
+  "args":  [
+    "data_root=../../../data/datasets",
+    "gpus=1",
+    "model=student_distill",
+    "limit_train_batches=0.05",
+    "limit_val_batches=0.1",
+    "monitor=val_minFDE6"
+  ],
+  "program":  "/Users/alexanderpaulus/Desktop/UniFreiburg/SS_25/deep_learning_lab/mainProject/repoPlace/DeepLeaning-Lab/emp_Feature_based_Distillation/train.py",
+  "codePath":  "emp_Feature_based_Distillation/train.py",
+  "codePathLocal":  "train.py",
+  "git":  {
+    "remote":  "https://github.com/AlexTindeche/DeepLeaning-Lab.git",
+    "commit":  "3418e1581ca66549f1abc79318e8812a739fdf28"
+  },
+  "email":  "mralexander.paulus@gmail.com",
+  "root":  ".",
+  "host":  "localhost",
+  "executable":  "/opt/anaconda3/envs/emp39/bin/python",
+  "cpu_count":  12,
+  "cpu_count_logical":  12,
+  "disk":  {
+    "/":  {
+      "total":  "994662584320",
+      "used":  "310250041344"
+    }
+  },
+  "memory":  {
+    "total":  "38654705664"
+  },
+  "apple":  {
+    "name":  "Apple M3 Pro",
+    "ecpuCores":  6,
+    "pcpuCores":  6,
+    "gpuCores":  18,
+    "memoryGb":  36,
+    "swapTotalBytes":  "7516192768",
+    "ramTotalBytes":  "38654705664"
+  },
+  "writerId":  "spz6xlybemcprehz61dex6wx1qnyh5sc"
+}

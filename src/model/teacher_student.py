@@ -19,6 +19,16 @@ torch.set_printoptions(sci_mode=False)
 
 
 class TeacherStudentTrainer(pl.LightningModule):
+    def get_curriculum_neg_ratio(self):
+        # Linearly increase NEG_RATIO from 0.1 to self.NEG_RATIO over 20 epochs
+        max_epochs = self.epochs - self.warmup_epochs  # Use only training epochs
+        curr_epoch = self.curr_ep - self.warmup_epochs
+        start_ratio = 0.1
+        if curr_epoch < max_epochs:
+            ratio = start_ratio + (self.NEG_RATIO - start_ratio) * (curr_epoch / max_epochs)
+        else:
+            ratio = self.NEG_RATIO
+        return ratio
     def __init__(
             self, 
             teacher_model,
@@ -70,6 +80,9 @@ class TeacherStudentTrainer(pl.LightningModule):
         # self.angle_ratio = loss_weights["rkd_angle"]
         self.tau = loss_weights["tau"]
         self.NEG_RATIO = loss_weights["NEG_RATIO"]
+        self.ce_weight = loss_weights["ce_weight"]
+        self.loc_weight = loss_weights["loc_weight"]
+        self.pi_weight = loss_weights["pi_weight"]
         # NOT USED CURRENTLY
         self.attention_ratio = loss_weights["attention_ratio"]
 
@@ -123,8 +136,10 @@ class TeacherStudentTrainer(pl.LightningModule):
         # Student forward
         hidden_embbeds_student, student_outputs = self.student(batch, get_embeddings=True)
         
-        losses = self.cal_loss(student_outputs, batch, teacher_out=teacher_outputs,
-                               kd_loss=0)
+        # Curriculum Learning: Adjust negative ratio based on epoch
+        neg_ratio = self.get_curriculum_neg_ratio()
+        losses = self.cal_loss(student_outputs, batch, teacher_out=teacher_outputs, 
+                               neg_ratio=neg_ratio, epoch=self.curr_ep)
 
         for k, v in losses.items():
             self.log(
@@ -205,11 +220,11 @@ class TeacherStudentTrainer(pl.LightningModule):
         
         # Positive pair scores
         h_pos = self.h_score(t_pos, s_pos, tau, N_over_M)
-        loss_pos = torch.median(torch.log(h_pos + 1e-8))  # Explicit Monte Carlo estimate
+        loss_pos = torch.mean(torch.log(h_pos + 1e-8))  # Explicit Monte Carlo estimate
 
         # Negative pair scores
         h_neg = self.h_score(t_neg, s_neg, tau, N_over_M)
-        loss_neg = torch.median(torch.log(1 - h_neg + 1e-8))  # Explicit Monte Carlo estimate
+        loss_neg = torch.mean(torch.log(1 - h_neg + 1e-8))  # Explicit Monte Carlo estimate
 
         # Combine as in Eq (18)
         loss = -(loss_pos + N * loss_neg)
@@ -251,7 +266,7 @@ class TeacherStudentTrainer(pl.LightningModule):
 
         # Compute critic loss
         loss = self.critic_loss(
-            t_pos, s_pos, t_neg, s_neg, tau=tau, N=neg_size, M=pos_size
+            t_pos, s_pos, t_neg, s_neg, tau=tau, N=neg_size, M=batch_size
         )
         return loss
 
@@ -296,7 +311,7 @@ class TeacherStudentTrainer(pl.LightningModule):
         mask[indices] = True
         return mask
     
-    def cal_loss(self, out, data, batch_idx=0, kd_loss=0., teacher_out=None):
+    def cal_loss(self, out, data, batch_idx=0, neg_ratio=0.2, teacher_out=None, epoch=None):
         y_hat, pi, y_hat_others = out["y_hat"], out["pi"], out["y_hat_others"]
         y, y_others = data["y"][:, 0], data["y"][:, 1:]
 
@@ -324,46 +339,45 @@ class TeacherStudentTrainer(pl.LightningModule):
         others_reg_mask = ~data["x_padding_mask"][:, 1:, self.history_steps:]
         others_reg_loss = F.smooth_l1_loss(y_hat_others[others_reg_mask], y_others[others_reg_mask])
         loss = loss + others_reg_loss
+        
+        if epoch is not None and epoch < self.warmup_epochs:
+            # During warmup, only use CE loss
+            loss = loss
+            return {
+                "loss": loss,
+                "reg_loss": agent_reg_loss.item(),
+                "cls_loss": agent_cls_loss.item(),
+                "critic_pi_loss": 0,
+                "critic_loc_loss": 0,
+                "others_reg_loss": others_reg_loss.item(),
+            }
+        loss = loss * self.ce_weight
 
         if teacher_loc_emb is not None:
             # --- Knowledge Distillation Loss on location prediction embeddings---
-            
-            # if self.teacher.embed_dim != self.student.embed_dim:
-            #     # Apply projection layers if dimensions differ
-            #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
-            # else:
             student_loc_emb = out["loc_emb"]
             critic_loss = 0
-            # print(teacher_loc_emb.shape, student_loc_emb.shape)
             for actor in range(teacher_loc_emb.shape[1]):
-                # rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-                # rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
                 critic_loss += self.contrastive_loss_batch_online(
                     teacher_loc_emb[:, actor], student_loc_emb[:, actor],
                     tau=self.tau,
-                    NEG_RATIO=0.2
+                    NEG_RATIO=neg_ratio
                 )
-            # print("critic_loss loc", critic_loss / teacher_loc_emb.shape[1])
             critic_loc_loss = critic_loss / teacher_loc_emb.shape[1]
-            loss = loss + critic_loc_loss
+            loss = loss + critic_loc_loss * self.loc_weight
 
         if teacher_pi_emb is not None:
             # --- Knowledge Distillation Loss on pi embeddings---
-            # if self.teacher.embed_dim != self.student.embed_dim:
-            #     # Apply projection layers if dimensions differ
-            #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
-            # else:
             student_loc_emb = out["loc_emb"]
             critic_loss = 0
             for actor in range(teacher_loc_emb.shape[1]):
                 critic_loss += self.contrastive_loss_batch_online(
                     teacher_loc_emb[:, actor], student_loc_emb[:, actor],
                     tau=self.tau,
-                    NEG_RATIO=self.NEG_RATIO
+                    NEG_RATIO=neg_ratio
                 )
-            # print("critic_loss pi", critic_loss / teacher_loc_emb.shape[1])
             critic_pi_loss = critic_loss / teacher_loc_emb.shape[1]
-            loss = loss + critic_pi_loss
+            loss = loss + critic_pi_loss * self.pi_weight
 
     
         return {

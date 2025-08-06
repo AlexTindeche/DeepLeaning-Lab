@@ -29,7 +29,10 @@ target:
     # rkd_angle: 2
     attention_ratio: 0
     tau: 0.2
-    NEG_RATIO: 0.2
+    NEG_RATIO: 0.6
+    ce_weight: 0.6
+    loc_weight: 0.25
+    pi_weight: 0.15
 
   # Teacher model definition
   teacher_model:

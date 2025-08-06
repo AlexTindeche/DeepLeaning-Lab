@@ -18,7 +18,7 @@ class MultimodalDecoder(nn.Module):
         self.loc = nn.Sequential(
             nn.Linear(embed_dim, 256),
             nn.ReLU(),
-            nn.Linear(256, embed_dim)
+            nn.Linear(256, embed_dim),
         )
         self.loc2 = nn.Sequential(
             nn.ReLU(),
@@ -27,7 +27,7 @@ class MultimodalDecoder(nn.Module):
         self.pi = nn.Sequential(
             nn.Linear(embed_dim, 256),
             nn.ReLU(),
-            nn.Linear(256, embed_dim)
+            nn.Linear(256, embed_dim),
         )
         self.pi2 = nn.Sequential(
             nn.ReLU(),

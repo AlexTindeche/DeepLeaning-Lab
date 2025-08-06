@@ -21,6 +21,7 @@ def main():
     parser.add_argument("-p", "--predict", help="", action="store_true")
     args = parser.parse_args()
     predict = args.predict
+    predict = True
 
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
     split = "emp/val"
@@ -28,7 +29,7 @@ def main():
     dataset = Av2Dataset(data_root=data_root, cached_split=split)
 
     if predict:
-        chkpt_fpath = "checkpoints/empd-base.ckpt"
+        chkpt_fpath = "outputs/emp-forecast_av2/2025-08-06/18-05-26/checkpoints/last.ckpt"
         assert os.path.exists(chkpt_fpath), "chkpt files does not exist, update path to checkpoint"
         model = Model.load_from_checkpoint(chkpt_fpath, pretrained_weights=chkpt_fpath)
         model = model.eval().cuda()

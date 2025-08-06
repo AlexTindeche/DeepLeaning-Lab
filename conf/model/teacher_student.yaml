@@ -25,8 +25,8 @@ target:
     kd: 0.5
     ce: 0.3
       # Relational Knowledge Distillation (RKD) settings
-    rkd_distance: 1
-    rkd_angle: 2
+    rkd_distance: .5
+    rkd_angle: 1
     attention_ratio: 0
 
   # Teacher model definition

@@ -61,7 +61,7 @@ class TeacherStudentTrainer(pl.LightningModule):
         if pretrained_weights_student is not None:
             self.student.load_from_checkpoint(pretrained_weights_student)
 
-        self.ce_weight = loss_weights["ce"]
+        self.ce_weight = loss_weights["ce"] # not used currently
         self.kd_weight = loss_weights["kd"]
         self.dist_criterion = RkdDistance()
         self.angle_criterion = RKdAngle()
@@ -71,7 +71,7 @@ class TeacherStudentTrainer(pl.LightningModule):
         # NOT USED CURRENTLY
         self.attention_ratio = loss_weights["attention_ratio"]
 
-        self._init_projection_layers()
+        # self._init_projection_layers()
         
         # Freeze teacher if pre-trained
         if pretrained:
@@ -121,8 +121,8 @@ class TeacherStudentTrainer(pl.LightningModule):
         hidden_embbeds_student, student_outputs = self.student(batch, get_embeddings=True)
         
         losses = self.cal_loss(student_outputs, batch, teacher_out=teacher_outputs,
-                               #kd_loss = 0)
-                               kd_loss=self.rdk_loss(hidden_embbeds_student, hidden_embbeds_teacher))
+                               kd_loss = 0)
+                               # kd_loss=self.rdk_loss(hidden_embbeds_student, hidden_embbeds_teacher))
         
         for k, v in losses.items():
             self.log(
@@ -239,47 +239,51 @@ class TeacherStudentTrainer(pl.LightningModule):
         others_reg_loss = F.smooth_l1_loss(y_hat_others[others_reg_mask], y_others[others_reg_mask])
         loss = loss + others_reg_loss
 
-        if teacher_loc_emb is not None:
-            # --- Knowledge Distillation Loss on location prediction embeddings---
-            
-            # if self.teacher.embed_dim != self.student.embed_dim:
-            #     # Apply projection layers if dimensions differ
-            #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
-            # else:
-            student_loc_emb = out["loc_emb"]
-            rkd_loss = 0
-            rkd_loss_distance = 0
-            # print(teacher_loc_emb.shape, student_loc_emb.shape)
-            for actor in range(teacher_loc_emb.shape[1]):
-                rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-                rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-            rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
-            rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
-            loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
+        rdk_loss_total = 0
+        if self.curr_ep > self.warmup_epochs:
+            if teacher_loc_emb is not None:
+                # --- Knowledge Distillation Loss on location prediction embeddings---
+                
+                # if self.teacher.embed_dim != self.student.embed_dim:
+                #     # Apply projection layers if dimensions differ
+                #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
+                # else:
+                student_loc_emb = out["loc_emb"]
+                rkd_loss = 0
+                rkd_loss_distance = 0
+                # print(teacher_loc_emb.shape, student_loc_emb.shape)
+                for actor in range(teacher_loc_emb.shape[1]):
+                    rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                    rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
+                rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
+                rdk_loss_total += self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
+                loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
 
-        if teacher_pi_emb is not None:
-            # --- Knowledge Distillation Loss on pi embeddings---
-            # if self.teacher.embed_dim != self.student.embed_dim:
-            #     # Apply projection layers if dimensions differ
-            #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
-            # else:
-            student_loc_emb = out["loc_emb"]
-            rkd_loss = 0
-            rkd_loss_distance = 0
-            for actor in range(teacher_loc_emb.shape[1]):
-                rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-                rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
-            rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
-            rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
-            loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
+            if teacher_pi_emb is not None:
+                # --- Knowledge Distillation Loss on pi embeddings---
+                # if self.teacher.embed_dim != self.student.embed_dim:
+                #     # Apply projection layers if dimensions differ
+                #     student_loc_emb = self.proj_layers[-1](out["loc_emb"])
+                # else:
+                student_loc_emb = out["loc_emb"]
+                rkd_loss = 0
+                rkd_loss_distance = 0
+                for actor in range(teacher_loc_emb.shape[1]):
+                    rkd_loss += RKdAngle()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                    rkd_loss_distance += RkdDistance()(teacher_loc_emb[:, actor], student_loc_emb[:, actor])
+                rkd_loss = rkd_loss / teacher_loc_emb.shape[1]
+                rkd_loss_distance = rkd_loss_distance / teacher_loc_emb.shape[1]
+                rdk_loss_total += self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
+                loss = loss + self.angle_ratio * rkd_loss + self.dist_ratio * rkd_loss_distance
        
-        loss = loss + self.kd_weight * kd_loss
+        loss = loss + kd_loss
     
         return {
             "loss": loss,
             "reg_loss": agent_reg_loss.item(),
             "cls_loss": agent_cls_loss.item(),
-            "rdk_loss": kd_loss,
+            "rdk_loss": kd_loss + rdk_loss_total,
             "others_reg_loss": others_reg_loss.item(),
         }
     

@@ -80,7 +80,7 @@ class MultimodalDecoder(nn.Module):
         return
 
 
-    def forward(self, x, x_encoder, key_padding_mask, N):
+    def forward(self, x, x_encoder, key_padding_mask, N, get_embeddings=False):
         B = x.shape[0]
 
         kv = x_encoder

@@ -97,7 +97,7 @@ class Trainer(pl.LightningModule):
 
 
     def forward(self, data, get_embeddings=False):
-        return self.net(data, get_hidden=get_embeddings)
+        return self.net(data, get_embeddings=get_embeddings)
 
 
     def predict(self, data, full=False):

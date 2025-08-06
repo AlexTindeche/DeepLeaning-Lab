@@ -3,7 +3,7 @@ phase: forecast
 
 target:
   _target_: src.model.trainer_forecast.Trainer
-  dim: 128
+  dim: 32
   historical_steps: 50
   future_steps: 60
   encoder_depth: 4

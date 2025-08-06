@@ -60,7 +60,8 @@ def visualize_scenario(
     show_future=True,
     show_history=True,
     show_map=True,
-    best_pred=-1
+    best_pred=-1,
+    teacher=False,
 ) -> None:
     if create_fig:
         fig, ax = plt.subplots(1, 1, figsize=(8, 8))
@@ -132,6 +133,68 @@ def visualize_scenario(
                 best_prediction[:, -1, 0],
                 best_prediction[:, -1, 1],
                 color="#ff993b",
+                alpha=1.0,
+                zorder=2000,
+                marker="*",
+                s=200
+            )
+
+    if teacher and prediction is not None:
+        if best_pred < 0:
+            _scatter_polylines(
+                prediction[:, :, :],
+                ax,
+                color="#d987ff",
+                grad_color=False,
+                alpha=0.8,
+                linewidth=3,
+                zorder=1000,
+                arrow=False
+            )
+            plt.scatter(
+                prediction[:, -1, 0],
+                prediction[:, -1, 1],
+                color="#ff3bef",
+                alpha=1,
+                zorder=2000,
+                marker="*",
+                s=200
+            )
+        else:
+            _scatter_polylines(
+                prediction[:, :, :],
+                ax,
+                color="#d987ff",
+                grad_color=False,
+                alpha=0.1,
+                linewidth=3,
+                zorder=1000,
+                arrow=False
+            )
+            plt.scatter(
+                prediction[:, -1, 0],
+                prediction[:, -1, 1],
+                color="#ff3bef",
+                alpha=0.3,
+                zorder=2000,
+                marker="*",
+                s=200
+            )
+            best_prediction = prediction[best_pred, :, :][np.newaxis, :, :]
+            _scatter_polylines(
+                best_prediction,
+                ax,
+                color="#d987ff",
+                grad_color=False,
+                alpha=1.0,
+                linewidth=4,
+                zorder=1000,
+                arrow=False
+            )
+            plt.scatter(
+                best_prediction[:, -1, 0],
+                best_prediction[:, -1, 1],
+                color="#ff3bef",
                 alpha=1.0,
                 zorder=2000,
                 marker="*",

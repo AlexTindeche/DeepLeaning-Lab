@@ -19,7 +19,7 @@ gpus: 1
 sync_bn: true
 batch_size: 64
 epochs: 60
-warmup_epochs: 10
+warmup_epochs: 5
 
 # optimizer
 lr: 0.001

@@ -164,4 +164,5 @@ cython_debug/
 .vscode
 outputs/
 submission/
-wandb/.DS_Store
+wandb/
+.DS_Store
